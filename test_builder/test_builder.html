@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Case Builder</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #f8f8f8;
+        }
+        h2 {
+            margin-top: 32px;
+            margin-bottom: 0;
+        }
+        #grid {
+            margin: 32px auto;
+        }
+        table {
+            border-collapse: collapse;
+            margin: auto;
+        }
+        td {
+            width: 32px;
+            height: 32px;
+            text-align: center;
+            vertical-align: middle;
+            border: 1px solid #222;
+            font-size: 20px;
+            cursor: pointer;
+            user-select: none;
+            background: #ccc;
+            transition: background 0.2s;
+            position: relative;
+        }
+        .visited {
+            background: #bbb;
+            color: #bbb;
+        }
+        .red {
+            color: #b00;
+            font-weight: bold;
+        }
+        #history-box {
+            width: 600px;
+            height: 300px;
+            font-family: monospace;
+            font-size: 14px;
+            background: #eee;
+            border: 1px solid #aaa;
+            padding: 8px;
+            resize: vertical;
+        }
+        #copy-btn, #paste-btn {
+            margin-top: 8px;
+            padding: 4px 12px;
+            font-size: 14px;
+        }
+        .tooltip {
+            visibility: hidden;
+            background: #222;
+            color: #fff;
+            text-align: center;
+            border-radius: 4px;
+            padding: 2px 6px;
+            position: absolute;
+            z-index: 10;
+            left: 50%;
+            top: -28px;
+            transform: translateX(-50%);
+            font-size: 13px;
+            white-space: nowrap;
+        }
+        td:hover .tooltip {
+            visibility: visible;
+        }
+    </style>
+</head>
+<body>
+    <h2>Click cells to set percepts</h2>
+    <table id="grid"></table>
+    <textarea id="history-box"></textarea>
+    <button id="copy-btn">Copy to clipboard</button>
+    <button id="paste-btn">Paste & display</button>
+    <script>
+        const WIDTH = 12;
+        const HEIGHT = 8;
+        // 0 = ?, 1 = visited, 2 = pit (≈), 3 = smell (S), 4 = pit+smell (≈S), 5 = sight
+        const states = ["?", "", "≈", "S", "≈S", "sight"];
+        let grid = Array.from({length: HEIGHT}, () => Array(WIDTH).fill(0));
+
+        function renderGrid() {
+            const table = document.getElementById("grid");
+            table.innerHTML = "";
+            for (let y = 0; y < HEIGHT; y++) {
+                const row = document.createElement("tr");
+                for (let x = 0; x < WIDTH; x++) {
+                    const cell = document.createElement("td");
+                    // Custom rendering for pit, pit+smell, and sight
+                    if (grid[y][x] === 2) {
+                        cell.innerHTML = '<span style="color:#222;font-weight:bold;">≈</span>';
+                    } else if (grid[y][x] === 4) {
+                        cell.innerHTML = '<span style="color:#222;font-weight:bold;">≈</span><span style="color:#b00;font-weight:bold;">S</span>';
+                    } else if (grid[y][x] === 5) {
+                        cell.innerHTML = '<span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:gold;border:2px solid #222;vertical-align:middle;"></span>';
+                    } else {
+                        cell.textContent = states[grid[y][x]];
+                    }
+                    if (grid[y][x] === 1) {
+                        cell.classList.add("visited");
+                    } else if (grid[y][x] === 3) {
+                        cell.classList.add("red");
+                    } else if (grid[y][x] === 4) {
+                        cell.classList.add("red");
+                        cell.style.background = "#bbb";
+                    }
+                    // Tooltip for coordinates
+                    const tooltip = document.createElement("span");
+                    tooltip.className = "tooltip";
+                    tooltip.textContent = `(${x}, ${y})`;
+                    cell.appendChild(tooltip);
+
+                    cell.onclick = () => {
+                        grid[y][x] = (grid[y][x] + 1) % states.length;
+                        renderGrid();
+                        updateHistoryBox();
+                    };
+                    row.appendChild(cell);
+                }
+                table.appendChild(row);
+            }
+        }
+
+        function updateHistoryBox() {
+            let history = [];
+            for (let y = 0; y < HEIGHT; y++) {
+                for (let x = 0; x < WIDTH; x++) {
+                    if (grid[y][x] === 0) continue; // skip ?
+                    let percepts = [];
+                    if (grid[y][x] === 2) percepts.push("breeze");
+                    if (grid[y][x] === 3) percepts.push("smell");
+                    if (grid[y][x] === 4) percepts.push("breeze", "smell");
+                    if (grid[y][x] === 5) percepts.push("sight");
+                    history.push(
+                        `{"pos": [${x},${y}], "percepts": [${percepts.map(p => `"${p}"`).join(", ")}]}`
+                    );
+                }
+            }
+            let lines = [];
+            lines.push("history = [");
+            for (let entry of history) {
+                lines.push("    " + entry + ",");
+            }
+            lines.push("]");
+            document.getElementById("history-box").value = lines.join("\n");
+        }
+
+        document.getElementById("copy-btn").onclick = function() {
+            const textarea = document.getElementById("history-box");
+            textarea.select();
+            document.execCommand("copy");
+        };
+
+        document.getElementById("paste-btn").onclick = function() {
+            const textarea = document.getElementById("history-box");
+            let text = textarea.value;
+
+            // Remove comments
+            text = text.replace(/#.*$/gm, "");
+            // Remove 'history =' and whitespace
+            text = text.replace(/history\s*=\s*/g, "");
+            // Remove trailing commas before ]
+            text = text.replace(/,(\s*[\]\}])/g, "$1");
+            // Replace single quotes with double quotes
+            text = text.replace(/'/g, '"');
+            // Remove extra whitespace
+            text = text.trim();
+
+            // Extract array if wrapped in history = [...]
+            let match = text.match(/\[(.|\s)*\]/);
+            if (!match) {
+                alert("Could not find a history array!");
+                return;
+            }
+            let arrText = match[0];
+
+            try {
+                let historyArr = JSON.parse(arrText);
+                // Reset grid
+                grid = Array.from({length: HEIGHT}, () => Array(WIDTH).fill(0));
+                for (let entry of historyArr) {
+                    let [x, y] = entry.pos;
+                    if (entry.percepts.includes("breeze") && entry.percepts.includes("smell")) {
+                        grid[y][x] = 4;
+                    } else if (entry.percepts.includes("breeze")) {
+                        grid[y][x] = 2;
+                    } else if (entry.percepts.includes("smell")) {
+                        grid[y][x] = 3;
+                    } else if (entry.percepts.includes("sight")) {
+                        grid[y][x] = 5;
+                    } else {
+                        grid[y][x] = 1;
+                    }
+                }
+                renderGrid();
+                updateHistoryBox();
+            } catch (e) {
+                alert("Could not parse history!");
+            }
+        };
+
+        renderGrid();
+        updateHistoryBox();
+    </script>
+</body>
+</html>
